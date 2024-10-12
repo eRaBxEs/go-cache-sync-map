@@ -2,8 +2,77 @@ package main
 
 import (
 	"fmt"
+	"math/big"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
+var cache = &sync.Map{}
+
+func calculateFibonacci(n int) *big.Int {
+	if n <= 0 {
+		return big.NewInt(0)
+	}
+	if n == 1 {
+		return big.NewInt(1)
+	}
+
+	a := big.NewInt(0)
+	b := big.NewInt(1)
+	var result *big.Int
+
+	for i := 2; i <= n; i++ {
+		result = new(big.Int).Set(a)
+		result.Add(result, b)
+		a.Set(b)
+		b.Set(result)
+	}
+
+	return result
+}
+
+func fibonacciHandler(c *gin.Context) {
+	n := c.DefaultQuery("n", "0")
+	nInt, err := strconv.Atoi(n)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	// Check if the result is already in the cache
+	if cacheResult, ok := cache.Load(nInt); ok {
+		fmt.Println("Cache hit!")
+		c.JSON(http.StatusOK, gin.H{"result": cacheResult})
+		return
+	}
+
+	fmt.Println("Cache miss!")
+
+	// Calculate Fibonacci if not in cache
+	result := calculateFibonacci(nInt)
+
+	//store the result in a cache with a time to live(TTL)
+	cache.Store(nInt, result)
+
+	// use go routine to set the time to live concurrently
+	go func() {
+		// remove the entry from the cache after 5mins (300secs)
+		time.Sleep(5 * time.Minute)
+		cache.Delete(nInt)
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"result": result})
+}
 func main() {
-	fmt.Println("Hello cache sync map!")
+	r := gin.Default()
+	r.GET("/fibonacci", fibonacciHandler)
+
+	port := ":8080"
+	fmt.Printf("server is running on port:%s\n", port)
+	r.Run()
+
 }
